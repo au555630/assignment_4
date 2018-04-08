@@ -17,7 +17,7 @@ The data you will use is the outcome of the psychological testing of the childre
 Data: https://www.dropbox.com/s/hom2qnmp9hyfwmu/Assignment3Data.csv?dl=0
 The data consists of ChildID, gender, age, diagnosis (ASD), symptom severity (ADOS), several aspects of IQ (NonVerbal/Perceptual,Verbal,Social) and the visit at which the tests were administered. The questions should be answered by focusing on visit 1.
 
-```{r}
+```{r read data}
 # port=read.csv("Assignment3Data.csv")
 # visit1=port[port$Visit== 1,]
 # 
@@ -30,17 +30,20 @@ The data consists of ChildID, gender, age, diagnosis (ASD), symptom severity (AD
 
 port=read.csv("Assignment3Data_m.csv")
 
+library(rethinking)
+
 ```
 
 
 The questions you will have to answer are:
 
+# Question 1
 1. Assess the relation between symptom severity and IQ (focus on visit 1 and children with ASD) and report the model, a plot of the model, a couple of lines describing the quality of the model and interpreting the results. P.S. Should you scale? P.P.S. Don't forget to motivate your priors. P.P.P.S. At least one plot for results and a plot for quality of each model (here and in the next questions) would be appreciated.
 1.1. Verbal IQ and ADOS
 1.2. Non Verbal IQ and ADOS
 1.3. Social IQ and ADOS
 
-```{r}
+```{r norm}
 #using visit 1 and children with ASD
 one= port[port$ASD== 1,]
 
@@ -59,12 +62,12 @@ mu = alpha + beta*verbalIQ
 
 scaled priors
 alpha ~ Normal (15, 2 ) #this should be around the mean of ADOS?
-beta ~ Normal(0, 0.5) #this should be how much I expect ADOS to be bigger/lower if I move 1 on the IQ scale
+beta ~ Normal(-0.5, 0.5) #this should be how much I expect ADOS to be bigger/lower if I move 1 on the IQ scale
 sigma ~ Uniform(0, 50) #the sd - just keep it a weak prior
 
 
-```{r}
-library(rethinking)
+```{r verbal}
+
 
 #plotting priors ☻ 
 #plot prior for alpha - ADOS 
@@ -106,7 +109,7 @@ model_v <- map(
     mu <- a + b*verbalIQ_s ,
     a ~ dnorm( 15 , 2 ) ,
     b ~ dnorm( -0.5 , 0.5 ) ,
-    sigma ~ dunif( 0 , 50 )
+    sigma ~ dunif( 0 , 5 )
   ) ,  data=one )
 
 
@@ -117,7 +120,30 @@ precis( model_v , corr=TRUE )
 ```
 
 Visualize
-```{r}
+
+```{r prior+post}
+#plotting the priors against the posteriors
+post = extract.samples( model_v , n=1e4 )
+dist_a= data.frame(poste= post$a, prior= rnorm(1e4, 15, 2)) #distribution of alpha (posterior and prior)
+
+ggplot(data= dist_a)+ 
+  geom_line(aes(poste), stat= "density") +
+  geom_line(aes(prior), stat= "density", colour= "red")+
+  labs(x="data", y="density")
+
+
+post = extract.samples( model_v , n=1e4 )
+dist_b= data.frame(poste= post$b, prior= rnorm(1e4, 0 , 0.5)) #distribution of alpha (posterior and prior)
+
+ggplot(data= dist_b)+ 
+  geom_line(aes(poste), stat= "density") +
+  geom_line(aes(prior), stat= "density", colour= "red")+
+  labs(x="data", y="density")
+```
+
+
+```{r plot verbal}
+
 #looking at the predictions of the model when verbal IQ is 0
 post <- extract.samples( model_v , n=2000 )
 at_zero= post$a + post$b * 0
@@ -147,7 +173,7 @@ shade( ADOS_PI , verbalIQ_seq ) #big shaded area (89% of predicted values)
 
 model:
 ADOS ~ nonverbalIQ
-```{r}
+```{r nonverbal}
 
 #using same priors
 
@@ -184,7 +210,7 @@ shade( ADOS_PI , nonverbalIQ_seq )
 
 model:
 ADOS ~ socialIQ
-```{r}
+```{r social}
 
 #using same priors
 
@@ -219,16 +245,313 @@ lines( socialIQ_seq , mu.mean )
 shade( mu.PI , socialIQ_seq ) 
 shade( ADOS_PI , socialIQ_seq ) 
 ```
+
+# Question 2
 2. Do the different aspects of IQ account for different portions of the variance in ADOS? 
 (knowing social IQ how much does it explane of AODS? and if you have 2?)
+
 2.1. Does it make sense to have all IQ measures in the same model? First write a few lines answering the question and motivating your answer, including a discussion as to what happens when you put all of them in the same model. Then build a model following your answer. If your answer is "no", you are not free, you still have to answer: are there alternative ways of answering the question?
+
+```{r corr}
+
+#Looking at correlation
+#verbal ~ nonverbal
+model_vn <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bn*nonverbalIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bn ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=one )
+
+
+precis(model_vn) 
+
+# verbal ~ social
+model_vs <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=one )
+
+
+
+precis(model_vs) 
+
+
+# nonverbal - social
+model_ns <- map(
+  alist(
+    nonverbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=one )
+
+precis(model_ns) 
+
+
+#--
+iq=data.frame(one$verbalIQ_s, one$nonverbalIQ_s, one$socialIQ_s)
+
+plot(iq)
+
+```
+
+
 2.2. Build the model, assess its quality, write a few lines interpreting the results.
 
+```{r model all}
+
+
+model_all <- map(
+  alist(
+    ADOS ~ dnorm( mu , sigma ) ,
+    mu <- a + bv*verbalIQ_s + bn*nonverbalIQ_s + bs*socialIQ_s,
+    a ~ dnorm( 15 , 2 ) ,
+    bv ~ dnorm( -0.5 , 0.5 ) ,
+    bn ~ dnorm( -0.5 , 0.5 ) ,
+    bs ~ dnorm( -0.5 , 0.5 ) ,
+    sigma ~ dunif( 0 , 50 )
+  ) ,  data=one )
+
+
+#output with variance-covariance matrix
+precis(model_all) 
+
+plot(precis(model_all))
+
+```
+
+
+
+```{r}
+samples_all = extract.samples( model_all , n=1e4 )
+
+prediction <- sim( model_all , data=one, n= 1e4, post=samples_all )
+
+library(bayesplot)
+ppc_dens_overlay(one$ADOS, prediction[1:150, ])
+#150 probable predictive posteriors
+```
+
+
+# Question 3
+
 3. Let's now include also the TD children. Does it make sense to ask whether IQ and ADOS are related? Motivate your answer. In any case, if you wanted to build a model to answer that question, which model would you build? Run the model, assess its quality, write a few lines interpreting the results.
+
+```{r clean and scale}
+
+library(ggplot2)
+
+ggplot(data = port) +
+  geom_line(aes(x= ADOS), stat= "density") +
+  facet_wrap(~ ASD)
+  
+#remove weird datapoints
+sum(is.na(port))
+h=na.omit(port)
+sum(is.na(h))
+
+i=subset(h, h$ASD == 0 & h$ADOS < 6  )
+j=subset(h, h$ASD == 1 & h$ADOS > 6  )
+
+cleaned= rbind(i, j)
+
+#standardize (mean of 0, sd of 1)
+cleaned$nonverbalIQ_s=(cleaned$nonverbalIQ - mean(cleaned$nonverbalIQ)) / sd(cleaned$nonverbalIQ)
+cleaned$verbalIQ_s= (cleaned$verbalIQ - mean(cleaned$verbalIQ)) / sd(cleaned$verbalIQ)
+cleaned$socialIQ_s= (cleaned$socialIQ - mean(cleaned$socialIQ)) / sd(cleaned$socialIQ)
+
+ggplot(data = cleaned) +
+  geom_line(aes(x= ADOS), stat= "density") +
+  facet_wrap(~ ASD)
+```
+
+ 
+```{r plot}
+
+#look at data to help understand it
+
+#nonverbalIQ
+ggplot(data = cleaned) +
+  geom_point(aes(x= ADOS, y= nonverbalIQ_s)) +
+  facet_wrap(~ ASD)
+
+#verbalIQ
+ggplot(data = cleaned) +
+  geom_point(aes(x= ADOS, y= verbalIQ_s)) +
+  facet_wrap(~ ASD)
+
+
+#socialIQ
+ggplot(data = cleaned) +
+  geom_point(aes(x= ADOS, y= socialIQ_s)) +
+  facet_wrap(~ ASD)
+
+
+
+```
+
+```{r}
+
+model_td <- map(
+  alist(
+    ADOS ~ dnorm( mu , sigma ) ,
+    mu <- a + bv*verbalIQ_s + bn*nonverbalIQ_s + bs*socialIQ_s + bd*ASD,
+    a ~ dnorm( 10 , 4 ) ,
+    bv ~ dnorm( 0 , 1 ) ,
+    bn ~ dnorm( 0 , 1) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    bd ~ dnorm( 0 , 5 ) , #binary variable - outcome will be the difference between TD and ASD
+    sigma ~ dunif( 0 , 50 )
+  ) ,  data=cleaned )
+
+
+#output with variance-covariance matrix
+precis(model_td) 
+
+plot(precis(model_td))
+
+```
+
+```{r}
+samples_td = extract.samples( model_td , n=1e4 )
+
+prediction <- sim( model_td , data=cleaned, n= 1e4, post=samples_td )
+
+library(bayesplot)
+ppc_dens_overlay(cleaned$ADOS, prediction[1:150, ])
+#150 probable predictive posteriors
+```
+
+
+
+# Question 4
 
 4. Let's discuss contents:
 4.1. You have three scores for IQ, do they show shared variance? Is that the same in TD and ASD? What does that tell us about IQ? (2 POV: 1) all IQ connected 2) you can be good at one and bad at other)
 4.2. You have explored the relation between IQ and ADOS. How do you explain that relation from a cognitive perspective? N.B. You can present alternative hypotheses.
+
+```{r corr}
+
+#using visit 1 and children with ASD
+asd= port[port$ASD== 1,]
+#standardize (mean of 0, sd of 1)
+asd$nonverbalIQ_s=scale(asd$nonverbalIQ)
+asd$verbalIQ_s= scale(asd$verbalIQ)
+asd$socialIQ_s= scale(asd$socialIQ)
+
+
+#Looking at correlation
+#verbal ~ nonverbal
+model_vn <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bn*nonverbalIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bn ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=asd )
+
+
+precis(model_vn) 
+
+# verbal ~ social
+model_vs <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=asd )
+
+
+
+precis(model_vs) 
+
+
+# nonverbal - social
+model_ns <- map(
+  alist(
+    nonverbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=asd )
+
+precis(model_ns) 
+
+
+#--
+# iq=data.frame(asd$verbalIQ_s, asd$nonverbalIQ_s, asd$socialIQ_s)
+# 
+# plot(iq)
+
+```
+
+```{r}
+#using visit 1 and children with TD
+td= port[port$ASD== 0,]
+#standardize (mean of 0, sd of 1)
+td$nonverbalIQ_s=scale(td$nonverbalIQ)
+td$verbalIQ_s= scale(td$verbalIQ)
+td$socialIQ_s= scale(td$socialIQ)
+
+td=na.omit(td)
+
+#Looking at correlation
+#verbal ~ nonverbal
+model_vn <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bn*nonverbalIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bn ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=td )
+
+
+precis(model_vn) 
+
+# verbal ~ social
+model_vs <- map(
+  alist(
+    verbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=td )
+
+
+
+precis(model_vs) 
+
+
+# nonverbal - social
+model_ns <- map(
+  alist(
+    nonverbalIQ_s ~ dnorm( mu , sigma ) ,
+    mu <- a + bs*socialIQ_s,
+    a ~ dnorm( 0 , 1 ) ,
+    bs ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 1 )
+  ) ,  data=td )
+
+precis(model_ns) 
+
+
+
+```
+
 
 5. Bonus questions: Including measurement errors. 
 5.1. Let's assume that ADOS has a measurement error of 1. How would you model that in any of the previous models? 
